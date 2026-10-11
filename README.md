@@ -1,171 +1,112 @@
 # Redis Rate Limiter
 
-A rate-limiting system built using **Node.js, TypeScript, Express.js, and Redis** to control the number of requests a client can make within a given time period.
+A Redis-backed rate-limiting project built with Node.js, TypeScript, Express.js, and Redis. This project implements multiple rate-limiting algorithms and demonstrates distributed rate limiting using shared Redis state across multiple Express server instances.
 
-This project explores multiple rate-limiting algorithms and demonstrates how Redis can maintain shared request state across multiple Express server instances.
-
-## Features
-
-* Implemented three rate-limiting algorithms.
-* Integrated Redis with Express middleware.
-* Used Redis Sorted Sets for sliding-window request tracking.
-* Used Redis Hashes and Lua scripts for Token Bucket state management and atomic operations.
-* Returns HTTP `429 Too Many Requests` when the request limit is exceeded.
-* Includes rate-limit response headers and `Retry-After` information.
-* Tested distributed rate limiting using two Express servers sharing the same Redis instance.
-* Tested request limits using Postman Collection Runner.
+**Repository:** [redis-rate-limiter](https://github.com/dexansh69/redis-rate-limiter)
 
 ## Tech Stack
 
-* **Runtime:** Node.js
-* **Language:** TypeScript
-* **Backend:** Express.js
-* **Database / In-memory store:** Redis
-* **Scripting:** Lua
-* **Testing:** Postman
+* Node.js
+* TypeScript
+* Express.js
+* Redis
+* Lua scripting
+* Postman
 
-## Rate-Limiting Algorithms
+## Features
 
-### 1. Fixed Window Counter
+* Fixed Window Counter
+* Sliding Window Log using Redis Sorted Sets
+* Token Bucket using Redis Hashes and Lua
+* Express rate-limiting middleware
+* HTTP `429 Too Many Requests` responses
+* `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers
+* `Retry-After` calculation
+* Shared rate limiting across two Express servers using Redis
+* Request testing with Postman Collection Runner
 
-Tracks the number of requests made by a client during a fixed time interval.
+## How It Works
 
-* Maintains a request counter for each client.
-* Allows requests until the configured limit is reached.
-* Resets the counter when the window expires.
+The Express middleware checks each incoming request against the configured rate limit. Redis stores the bucket state, while a Lua script performs the Token Bucket state updates atomically.
 
-**Limitation:** Requests near a window boundary can allow a burst of traffic across two consecutive windows.
-
-### 2. Sliding Window Log
-
-Uses a Redis Sorted Set to store request timestamps.
-
-* Removes timestamps outside the configured time window.
-* Counts requests that fall within the current window.
-* Rejects new requests when the request limit is reached.
-
-**Advantage:** Provides more precise rolling-window enforcement.
-
-**Limitation:** Stores individual request timestamps, which can increase memory usage.
-
-### 3. Token Bucket
-
-Uses a Redis Hash to maintain the bucket's token count and last-refill timestamp.
-
-* Tokens are replenished according to a configured refill rate.
-* Each request consumes tokens.
-* Requests are rejected when insufficient tokens are available.
-* The bucket has a maximum capacity to control bursts.
-
-A Lua script performs the token-bucket state update and request decision atomically in Redis, preventing concurrent requests from independently modifying the same bucket state.
+When the request limit is exhausted, the API returns `429 Too Many Requests`.
 
 ## Distributed Rate Limiting
 
-The project uses two Express server instances running on different ports and sharing the same Redis instance.
+Two Express servers run on separate ports:
 
-* Server 1: Port `5001`
-* Server 2: Port `5002`
-* Redis: Shared state store
+* Server 1: `localhost:5001`
+* Server 2: `localhost:5002`
 
-Both servers use the same rate-limit key for the same client. Consequently, requests handled by either server consume tokens from the same bucket instead of maintaining separate per-server counters.
+Both servers share the same Redis instance and rate-limit key for the same client. Requests sent to either server consume tokens from the shared bucket.
 
-This demonstrates how Redis can coordinate rate limiting across multiple backend instances.
+With a bucket capacity of five tokens and negligible refill between requests, the first five requests are allowed and the sixth is rejected.
 
-## API Endpoints
+## Testing
 
-| Method | Endpoint | Description                                                    |
-| ------ | -------- | -------------------------------------------------------------- |
-| POST   | `/login` | Simulated login endpoint protected by rate-limiting middleware |
-| GET    | `/check` | Checks Redis connectivity                                      |
+Tested using Postman Collection Runner and `curl`.
 
-The `/login` endpoint returns a successful response while requests are permitted. When the configured limit is exceeded, it returns HTTP `429 Too Many Requests`.
-
-Example rate-limit headers:
-
-```http
-X-RateLimit-Limit: 5
-X-RateLimit-Remaining: 0
-Retry-After: 1
-```
-
-The exact `Retry-After` value depends on the configured refill rate and the current bucket state.
+* Verified allowed and rejected requests.
+* Verified rate-limit response headers.
+* Alternated requests between both server instances.
+* Confirmed that both servers share the same Redis rate-limit state.
 
 ## Getting Started
 
 ### Prerequisites
 
 * Node.js and npm
-* Redis server
-* Git
+* Redis running locally or at a reachable Redis URL
 
-### Installation
-
-Clone the repository:
+### Clone the repository
 
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-cd <YOUR_PROJECT_FOLDER>
+git clone https://github.com/dexansh69/redis-rate-limiter.git
+cd redis-rate-limiter
 ```
 
-Install dependencies:
+### Install dependencies
 
 ```bash
 npm install
 ```
 
-Configure the Redis connection URL and server port using the project's environment configuration.
+### Configure environment variables
+
+Create a `.env` file in the project root and configure the Redis connection URL and any other variables required by the application.
 
 Example:
 
 ```env
-PORT=5001
 REDIS_URL=redis://localhost:6379
+PORT=5001
 ```
 
-Use the variable names expected by your actual code. Do not commit real credentials or secrets.
+Use the variable names and ports expected by your actual code.
 
-### Running the Servers
+### Run the application
 
-Start each server using the scripts configured in your `package.json`, or use the appropriate development command for each entry point.
-
-Run both servers simultaneously to test shared rate-limit state.
-
-## Testing
-
-The rate limiter was tested using Postman Collection Runner and `curl`.
-
-### Request-limit test
-
-With a configured bucket capacity of five tokens and no meaningful refill between requests:
-
-* First five requests: Allowed.
-* Subsequent requests while the bucket remains empty: Rejected with HTTP `429`.
-
-### Distributed test
-
-Requests were alternated between ports `5001` and `5002`.
-
-The first five requests were accepted, while the sixth request was rejected. The remaining-token header decreased across both servers, demonstrating that they were using shared Redis rate-limit state.
+Start each server using the development scripts or commands configured in `package.json`. Run both servers simultaneously to test distributed rate limiting.
 
 ## Key Learnings
 
-* How rate limiting protects backend APIs from excessive requests.
-* Differences between Fixed Window, Sliding Window Log, and Token Bucket algorithms.
-* Using Redis for shared, low-latency state.
-* Executing atomic Redis operations with Lua scripts.
-* Building Express middleware for request control.
-* Understanding shared state across multiple server instances.
-* Testing rate-limit behavior with Postman and `curl`.
+* Implementing different rate-limiting algorithms.
+* Managing shared state with Redis.
+* Using Redis Lua scripts for atomic operations.
+* Integrating rate limiting into Express middleware.
+* Understanding distributed rate limiting across multiple servers.
+* Testing API behavior using Postman and `curl`.
 
 ## Future Improvements
 
 * Add automated unit and integration tests.
-* Test concurrent requests and additional edge cases.
-* Improve handling of Redis connection failures.
-* Add configurable limits for different endpoints and clients.
-* Run multiple servers and Redis using Docker Compose.
-* Improve monitoring and rate-limit metrics.
+* Improve Redis failure handling.
+* Test concurrent requests and edge cases.
+* Containerize the application and Redis using Docker Compose.
+* Add monitoring and configurable per-route limits.
 
 ## Author
 
 **Devansh Garg**
+
+GitHub: [@dexansh69](https://github.com/dexansh69)
